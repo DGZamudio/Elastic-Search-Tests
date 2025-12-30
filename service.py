@@ -4,10 +4,11 @@ from tqdm import tqdm
 from pprint import pprint
 from elastic_transport import ObjectApiResponse
 from elastic import ElasticSearchFuns
+from embeddings import get_embedding
 
 
-class IndexService:
-    def __init__(self, repo: ElasticSearchFuns):
+class ElasticService:
+    def __init__(self, repo = ElasticSearchFuns()):
         self.repo = repo
         self.current_index = None
 
@@ -48,14 +49,14 @@ class IndexService:
     
     
     # Index management
-    def create_index(self, index: str, overwrite=False):
+    def create_index(self, index: str, mapping, overwrite=False):
         # Funcion para crear un indice en elastic search
-        if self.repo.index_exists(index): # Verificamos si el indice existe
+        if self.repo.index_exists(index=index): # Verificamos si el indice existe
             if not overwrite: # Si no se desea sobreescribir el indice
                 raise Exception("El índice ya existe")
             self.repo.delete_index(index) # Se elimina el indice si se desea
 
-        self.repo.create_index(index)
+        self.repo.create_index(index, mapping)
         self.current_index = index # Se settea el indice actual
 
     def select_index(self, index: str):
@@ -65,25 +66,19 @@ class IndexService:
 
         self.current_index = index
         
+    def get_mapping_index(self):
+        self._require_index()
+        print(self.repo.get_mapping(self.current_index))
       
         
     # Data management
-    def add_doc_es(self, mongo_id, id_noticia, tema, grupo, fecha, titulo, resumen, contenido_completo, tipo_norma, estado, fuente):
+    def add_doc_es(self, documento):
         # Funcion para añadir un documento dentro de elastic search
         self._require_index()
         
         document = {
-            "mongo_id": mongo_id,
-            "id_noticia": id_noticia,
-            "tema": tema,
-            "grupo": grupo,
-            "fecha": fecha,
-            "titulo": titulo,
-            "resumen": resumen,
-            "contenido_completo": contenido_completo,
-            "tipo_norma": tipo_norma,
-            "estado": estado,
-            "fuente": fuente
+            **documento,
+            'embedding': get_embedding(documento["contenido_completo"])
         }
         
         response = self.repo.add_doc(index=self.current_index, document=document)
@@ -96,8 +91,15 @@ class IndexService:
         try:
             data = json.load(open(file, "r", encoding="utf-8"))
             
+            operaciones = []
             for documento in tqdm(data, total=len(data)):
-                self.repo.add_doc(self.current_index, documento)
+                operaciones.append({'index': {'_index':self.current_index}})
+                operaciones.append({
+                    **documento,
+                    'embedding': get_embedding(documento["contenido_completo"])
+                })
+            
+            self.repo.bulk(operations=operaciones)
             print("Los documentos fueron insertados")
         except Exception as e:
             print(f"Error al abrir el documento: {e}")
@@ -148,6 +150,15 @@ class IndexService:
     
     
     # Search API | Busqueda de datos
+    def main_search(self, **kwargs):
+        self._require_index()
+        response = self.repo.search(
+            index=self.current_index, 
+            **kwargs
+        )
+        
+        return response["hits"]["hits"]
+        
     def match_search(self, query={}):
         # Busqueda mediante query match, la cual trae los documentos que contienen un texto, numero, fecha o valor especifico dentro de un campo especifico - Busqueda de texto
         self._require_index()
@@ -163,7 +174,7 @@ class IndexService:
                 index=self.current_index
             )
         
-        pprint(response["hits"]["hits"])
+        return response
         
     def term_search(self, query):
         # Busqueda mediante query term, la cual trae solo los documentos que contienen un valor exacto dentro de un campo exacto de los documentos - Busqueda de Keywords o valores unicos entre si

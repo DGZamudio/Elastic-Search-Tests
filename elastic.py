@@ -10,7 +10,7 @@ class ElasticSearchFuns:
         # Funcion para verificar si un indice existe dentro de la conexion con elastic search
         return self.es.indices.exists(index=index)
 
-    def create_index(self, index: str, shards=1, replicas=0):
+    def create_index(self, index: str, mapping, shards=1, replicas=0):
         # Funcion para crear un indice dentro de la conexion con elastic search | Default 1 Shard y 0 replicas para desarrollo y pruebas
         self.es.indices.create(
             index=index,
@@ -21,6 +21,12 @@ class ElasticSearchFuns:
                 }
             }
         )
+        
+        self.es.indices.put_mapping(index=index, body=mapping) # Crear mapping manualmente para trabajar con Dense Vectors
+        
+    def get_mapping(self, index):
+        # Funcion para verificar el mapping de un indice 
+        return self.es.indices.get_mapping(index=index)
 
     def delete_index(self, index: str):
         # Funcion para eliminar un indice dentro de la conexion con elastic search
@@ -59,17 +65,16 @@ class ElasticSearchFuns:
         # Funcion que elimina un documento de un indice
         return self.es.delete(index=index, id=doc_id)
     
-    # Bulk API implementar luego - API para hacer multiples tareas en una sola conexion - Escencial para subida masiva o demas
-    
+    # Bulk API - API para hacer multiples tareas en una sola conexion - Escencial para subida masiva o demas
+    def bulk(self, operations):
+        return self.es.bulk(operations=operations)
     
     # Search API | Busqueda de datos
-    def search(self, index, query = {"match_all":{}}, q = "") -> ObjectApiResponse:
+    def search(self, index, **kwargs) -> ObjectApiResponse:
         # Funcion principal para hacer uso del API de busqueda de Elastic Search
         return self.es.search(
             index=index, # Esta funcion puede recibir varios tipos de referencia a un indice, entre ellos: indice exacto, multiples indices separados por comas, usando almohadillas index* o usando _all para buscar en todos
-            body={
-                "query":query # Con o sin el body el query, por defecto trae todos los documentos del indice
-            },
+            **kwargs
             #q - Parametro de filtrado, usa lenguaje Lucene y es mas basico
             #query - Parametro de filtrado, se usa para busquedas mas complejas y estructuradas, usa el lenguaje Query DSL
             #timeout - Tiempo de espera maximo para una busqueda
